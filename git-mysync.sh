@@ -1,7 +1,6 @@
-
 #!/bin/bash
 
-# Git 完整同步脚本
+# Git 同步脚本 (mysync)
 # 功能：同步所有远程分支、标签，自动创建本地跟踪分支
 
 set -e  # 遇到错误时退出
@@ -208,7 +207,7 @@ show_summary() {
 
 # 主函数
 main() {
-    print_msg $CYAN "[START] 开始 Git 完整同步..."
+    print_msg $CYAN "[START] Git 同步 (mysync)..."
     echo
     
     # 基础检查
@@ -249,9 +248,9 @@ main() {
 
 # 帮助信息
 show_help() {
-    echo "Git 完整同步脚本"
+    echo "Git 同步脚本 (mysync)"
     echo
-    echo "用法: $0 [选项]"
+    echo "用法: mysync [选项]"
     echo
     echo "选项:"
     echo "  -h, --help     显示此帮助信息"
@@ -293,4 +292,3 @@ done
 
 # 运行主函数
 main
-
