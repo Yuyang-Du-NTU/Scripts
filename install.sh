@@ -61,6 +61,17 @@ check_system() {
         exit 1
     fi
     
+    # 检查 base64 命令
+    if ! command -v base64 &> /dev/null; then
+        print_msg $RED "[ERROR] 需要 base64 命令！"
+        if [[ "$os" == "macOS" ]]; then
+            print_msg $YELLOW "[HINT] macOS 应该自带 base64，请检查系统"
+        elif [[ "$os" == "Linux" ]]; then
+            print_msg $YELLOW "[HINT] 请安装 coreutils 包"
+        fi
+        exit 1
+    fi
+    
     # 检查网络工具
     local downloader=""
     if command -v curl &> /dev/null; then
@@ -172,22 +183,25 @@ download_scripts() {
     return 0
 }
 
-# 处理脚本内容以适配不同平台
+# 处理脚本内容 - 使用 base64 编码避免转义问题
 process_script_content() {
     local script_file="$1"
     local script_content=""
     
-    # 读取脚本内容
-    script_content=$(<"$script_file")
-    
-    # 使用更精确的转义策略
-    # 1. 先转义反斜杠
-    # 2. 转义双引号
-    # 3. 转义美元符号（但保留 $@ 等特殊变量）
-    script_content=$(printf '%s' "$script_content" | \
-        sed 's/\\/\\\\/g' | \
-        sed 's/"/\\"/g' | \
-        sed 's/\$\([^@#*0-9{]\)/\\\$\1/g')
+    # 读取脚本内容并进行 base64 编码
+    if command -v base64 &> /dev/null; then
+        # 使用 base64 编码（跨平台兼容）
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS 的 base64 命令
+            script_content=$(base64 < "$script_file" | tr -d '\n')
+        else
+            # Linux 和其他系统
+            script_content=$(base64 -w 0 < "$script_file" 2>/dev/null || base64 < "$script_file" | tr -d '\n')
+        fi
+    else
+        print_msg $RED "[ERROR] 需要 base64 命令"
+        return 1
+    fi
     
     echo "$script_content"
 }
@@ -199,6 +213,11 @@ create_git_aliases() {
     # 处理脚本内容
     local sync_script=$(process_script_content "${TEMP_DIR}/git-mysync.sh")
     local push_script=$(process_script_content "${TEMP_DIR}/git-mypush.sh")
+    
+    if [[ -z "$sync_script" ]] || [[ -z "$push_script" ]]; then
+        print_msg $RED "[ERROR] 脚本处理失败"
+        return 1
+    fi
     
     # 备份现有的 aliases（如果存在）
     local backup_needed=false
@@ -217,9 +236,9 @@ create_git_aliases() {
         print_msg $YELLOW "[INFO] 原有命令已备份为 git mysync-backup 和 git mypush-backup"
     fi
     
-    # 创建新的 aliases
+    # 创建新的 aliases - 使用 base64 解码执行
     echo -n "  - 配置 git mysync... "
-    if git config --global alias.mysync "!bash -c \"${sync_script}\" -- "; then
+    if git config --global alias.mysync "!echo '${sync_script}' | base64 -d | bash -s -- "; then
         echo -e "${GREEN}✓${NC}"
     else
         echo -e "${RED}✗${NC}"
@@ -228,7 +247,7 @@ create_git_aliases() {
     fi
     
     echo -n "  - 配置 git mypush... "
-    if git config --global alias.mypush "!bash -c \"${push_script}\" -- "; then
+    if git config --global alias.mypush "!echo '${push_script}' | base64 -d | bash -s -- "; then
         echo -e "${GREEN}✓${NC}"
     else
         echo -e "${RED}✗${NC}"
