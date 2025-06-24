@@ -180,9 +180,14 @@ process_script_content() {
     # 读取脚本内容
     script_content=$(<"$script_file")
     
-    # 对所有平台使用完整的转义处理
-    # 转义顺序很重要：先处理反斜杠，再处理其他字符
-    script_content=$(echo "$script_content" | sed 's/\\/\\\\\\\\/g' | sed 's/"/\\\\"/g' | sed 's/\$/\\\$/g' | sed "s/'/\\\\'/g" | sed 's/`/\\`/g')
+    # 使用更精确的转义策略
+    # 1. 先转义反斜杠
+    # 2. 转义双引号
+    # 3. 转义美元符号（但保留 $@ 等特殊变量）
+    script_content=$(printf '%s' "$script_content" | \
+        sed 's/\\/\\\\/g' | \
+        sed 's/"/\\"/g' | \
+        sed 's/\$\([^@#*0-9{]\)/\\\$\1/g')
     
     echo "$script_content"
 }
