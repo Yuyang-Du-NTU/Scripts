@@ -261,32 +261,17 @@ EOF
 
 # 主函数
 main() {
-    print_msg $CYAN "=== Git Scripts 安装程序 (Git Alias 版本) ==="
+    print_msg $CYAN "=== Git Scripts 安装程序 ==="
     echo
     
     # 检查环境
     check_git
     
-    # 询问安装方式
-    print_msg $YELLOW "[CHOICE] 请选择安装方式:"
-    echo "1. 完整版 (下载完整脚本，功能齐全)"
-    echo "2. 简化版 (直接配置alias，基本功能)"
-    echo -n "请选择 (1/2, 默认为 2): "
-    read -n 1 -r choice
-    echo
-    
-    case "$choice" in
-        1)
-            # 完整版安装
-            create_temp_dir
-            download_scripts
-            create_git_aliases
-            ;;
-        *)
-            # 简化版安装（默认）
-            create_simple_aliases
-            ;;
-    esac
+    # 直接安装完整版
+    print_msg $BLUE "[INFO] 安装完整版 Git Scripts..."
+    create_temp_dir
+    download_scripts
+    create_git_aliases
     
     # 验证安装
     if verify_installation; then
