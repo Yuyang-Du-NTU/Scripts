@@ -61,17 +61,6 @@ check_system() {
         exit 1
     fi
     
-    # 检查 base64 命令
-    if ! command -v base64 &> /dev/null; then
-        print_msg $RED "[ERROR] 需要 base64 命令！"
-        if [[ "$os" == "macOS" ]]; then
-            print_msg $YELLOW "[HINT] macOS 应该自带 base64，请检查系统"
-        elif [[ "$os" == "Linux" ]]; then
-            print_msg $YELLOW "[HINT] 请安装 coreutils 包"
-        fi
-        exit 1
-    fi
-    
     # 检查网络工具
     local downloader=""
     if command -v curl &> /dev/null; then
@@ -183,41 +172,54 @@ download_scripts() {
     return 0
 }
 
-# 处理脚本内容 - 使用 base64 编码避免转义问题
-process_script_content() {
-    local script_file="$1"
-    local script_content=""
+# 获取脚本安装目录
+get_script_dir() {
+    local script_dir=""
     
-    # 读取脚本内容并进行 base64 编码
-    if command -v base64 &> /dev/null; then
-        # 使用 base64 编码（跨平台兼容）
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS 的 base64 命令
-            script_content=$(base64 < "$script_file" | tr -d '\n')
-        else
-            # Linux 和其他系统
-            script_content=$(base64 -w 0 < "$script_file" 2>/dev/null || base64 < "$script_file" | tr -d '\n')
-        fi
+    # 优先级：~/.local/bin > ~/bin > ~/.git-scripts
+    if [[ -d "$HOME/.local/bin" ]]; then
+        script_dir="$HOME/.local/bin"
+    elif [[ -d "$HOME/bin" ]]; then
+        script_dir="$HOME/bin"
     else
-        print_msg $RED "[ERROR] 需要 base64 命令"
+        script_dir="$HOME/.git-scripts"
+        mkdir -p "$script_dir"
+    fi
+    
+    echo "$script_dir"
+}
+
+# 安装脚本文件
+install_scripts() {
+    local script_dir=$(get_script_dir)
+    print_msg $BLUE "[INSTALL] 安装脚本到: $script_dir"
+    
+    # 复制脚本文件
+    echo -n "  - 安装 git-mysync... "
+    if cp "${TEMP_DIR}/git-mysync.sh" "$script_dir/git-mysync" && chmod +x "$script_dir/git-mysync"; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${RED}✗${NC}"
         return 1
     fi
     
-    echo "$script_content"
+    echo -n "  - 安装 git-mypush... "
+    if cp "${TEMP_DIR}/git-mypush.sh" "$script_dir/git-mypush" && chmod +x "$script_dir/git-mypush"; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${RED}✗${NC}"
+        return 1
+    fi
+    
+    print_msg $GREEN "[OK] 脚本安装完成"
+    return 0
 }
 
 # 创建 Git aliases
 create_git_aliases() {
-    print_msg $BLUE "[INSTALL] 正在配置 Git aliases..."
+    print_msg $BLUE "[CONFIG] 配置 Git aliases..."
     
-    # 处理脚本内容
-    local sync_script=$(process_script_content "${TEMP_DIR}/git-mysync.sh")
-    local push_script=$(process_script_content "${TEMP_DIR}/git-mypush.sh")
-    
-    if [[ -z "$sync_script" ]] || [[ -z "$push_script" ]]; then
-        print_msg $RED "[ERROR] 脚本处理失败"
-        return 1
-    fi
+    local script_dir=$(get_script_dir)
     
     # 备份现有的 aliases（如果存在）
     local backup_needed=false
@@ -236,9 +238,9 @@ create_git_aliases() {
         print_msg $YELLOW "[INFO] 原有命令已备份为 git mysync-backup 和 git mypush-backup"
     fi
     
-    # 创建新的 aliases - 使用 base64 解码执行
+    # 创建新的 aliases - 直接调用脚本文件
     echo -n "  - 配置 git mysync... "
-    if git config --global alias.mysync "!echo '${sync_script}' | base64 -d | bash -s -- "; then
+    if git config --global alias.mysync "!$script_dir/git-mysync"; then
         echo -e "${GREEN}✓${NC}"
     else
         echo -e "${RED}✗${NC}"
@@ -247,7 +249,7 @@ create_git_aliases() {
     fi
     
     echo -n "  - 配置 git mypush... "
-    if git config --global alias.mypush "!echo '${push_script}' | base64 -d | bash -s -- "; then
+    if git config --global alias.mypush "!$script_dir/git-mypush"; then
         echo -e "${GREEN}✓${NC}"
     else
         echo -e "${RED}✗${NC}"
@@ -260,65 +262,71 @@ create_git_aliases() {
     return 0
 }
 
-# 验证安装
-verify_installation() {
-    print_msg $BLUE "[VERIFY] 验证安装结果..."
+# # 验证安装
+# verify_installation() {
+#     print_msg $BLUE "[VERIFY] 验证安装结果..."
     
-    local all_good=true
+#     local all_good=true
     
-    # 检查 mysync
-    echo -n "  - 检查 git mysync... "
-    if git config --global --get alias.mysync &>/dev/null; then
-        echo -e "${GREEN}✓${NC}"
-        # 获取 alias 大小以确保不是空的
-        local mysync_size=$(git config --global --get alias.mysync | wc -c)
-        if [[ "$mysync_size" -lt 100 ]]; then
-            print_msg $YELLOW "    [WARN] git mysync 配置可能不完整"
-            all_good=false
-        fi
-    else
-        echo -e "${RED}✗${NC}"
-        all_good=false
-    fi
+#     # 检查 mysync
+#     echo -n "  - 检查 git mysync... "
+#     if git config --global --get alias.mysync &>/dev/null; then
+#         echo -e "${GREEN}✓${NC}"
+#         # 获取 alias 大小以确保不是空的
+#         local mysync_size=$(git config --global --get alias.mysync | wc -c)
+#         if [[ "$mysync_size" -lt 100 ]]; then
+#             print_msg $YELLOW "    [WARN] git mysync 配置可能不完整"
+#             all_good=false
+#         fi
+#     else
+#         echo -e "${RED}✗${NC}"
+#         all_good=false
+#     fi
     
-    # 检查 mypush
-    echo -n "  - 检查 git mypush... "
-    if git config --global --get alias.mypush &>/dev/null; then
-        echo -e "${GREEN}✓${NC}"
-        # 获取 alias 大小以确保不是空的
-        local mypush_size=$(git config --global --get alias.mypush | wc -c)
-        if [[ "$mypush_size" -lt 100 ]]; then
-            print_msg $YELLOW "    [WARN] git mypush 配置可能不完整"
-            all_good=false
-        fi
-    else
-        echo -e "${RED}✗${NC}"
-        all_good=false
-    fi
+#     # 检查 mypush
+#     echo -n "  - 检查 git mypush... "
+#     if git config --global --get alias.mypush &>/dev/null; then
+#         echo -e "${GREEN}✓${NC}"
+#         # 获取 alias 大小以确保不是空的
+#         local mypush_size=$(git config --global --get alias.mypush | wc -c)
+#         if [[ "$mypush_size" -lt 100 ]]; then
+#             print_msg $YELLOW "    [WARN] git mypush 配置可能不完整"
+#             all_good=false
+#         fi
+#     else
+#         echo -e "${RED}✗${NC}"
+#         all_good=false
+#     fi
     
-    # 显示配置文件位置
-    local config_file=$(git config --global --list --show-origin | grep "alias.mysync" | cut -d: -f1 | head -1)
-    if [[ -n "$config_file" ]]; then
-        echo "  - 配置文件: $config_file"
-    fi
+#     # 显示配置文件位置
+#     local config_file=$(git config --global --list --show-origin | grep "alias.mysync" | cut -d: -f1 | head -1)
+#     if [[ -n "$config_file" ]]; then
+#         echo "  - 配置文件: $config_file"
+#     fi
     
-    echo
+#     echo
     
-    if $all_good; then
-        print_msg $GREEN "[OK] 安装验证通过"
-        return 0
-    else
-        print_msg $RED "[ERROR] 安装验证失败"
-        return 1
-    fi
-}
+#     if $all_good; then
+#         print_msg $GREEN "[OK] 安装验证通过"
+#         return 0
+#     else
+#         print_msg $RED "[ERROR] 安装验证失败"
+#         return 1
+#     fi
+# }
 
 # 显示使用说明
 show_usage() {
+    local script_dir=$(get_script_dir)
+    
     echo
     print_msg $GREEN "═══════════════════════════════════════════════"
     print_msg $GREEN "          安装成功！🎉"
     print_msg $GREEN "═══════════════════════════════════════════════"
+    echo
+    print_msg $PURPLE "脚本安装位置："
+    echo "   $script_dir/git-mysync"
+    echo "   $script_dir/git-mypush"
     echo
     print_msg $PURPLE "可用命令："
     echo
@@ -346,6 +354,7 @@ show_usage() {
     print_msg $PURPLE "管理命令："
     echo "   查看配置: git config --get-regexp alias.my"
     echo "   卸载脚本: curl -fsSL ${REPO_BASE}/uninstall.sh | bash"
+    echo "   更新脚本: 重新运行安装命令"
     echo
     print_msg $BLUE "提示：如遇到问题，请访问："
     print_msg $BLUE "https://github.com/Yuyang-Du-NTU/Scripts"
@@ -359,6 +368,13 @@ rollback_installation() {
     # 删除新创建的 aliases
     git config --global --unset alias.mysync 2>/dev/null
     git config --global --unset alias.mypush 2>/dev/null
+    
+    # 删除安装的脚本文件
+    local script_dir=$(get_script_dir)
+    if [[ -n "$script_dir" ]]; then
+        rm -f "$script_dir/git-mysync" 2>/dev/null
+        rm -f "$script_dir/git-mypush" 2>/dev/null
+    fi
     
     # 恢复备份（如果有）
     if git config --global --get alias.mysync-backup &>/dev/null; then
@@ -390,6 +406,12 @@ main() {
         exit 1
     fi
     
+    # 安装脚本文件
+    if ! install_scripts; then
+        print_msg $RED "[FATAL] 脚本安装失败"
+        exit 1
+    fi
+    
     # 创建 Git aliases
     if ! create_git_aliases; then
         print_msg $RED "[FATAL] 配置 Git aliases 失败"
@@ -397,12 +419,12 @@ main() {
         exit 1
     fi
     
-    # 验证安装
-    if ! verify_installation; then
-        print_msg $RED "[FATAL] 安装验证失败"
-        rollback_installation
-        exit 1
-    fi
+    # # 验证安装
+    # if ! verify_installation; then
+    #     print_msg $RED "[FATAL] 安装验证失败"
+    #     rollback_installation
+    #     exit 1
+    # fi
     
     # 显示使用说明
     show_usage
@@ -411,6 +433,14 @@ main() {
     rm -rf "$TEMP_DIR" 2>/dev/null
     
     print_msg $GREEN "[COMPLETE] 安装过程完成！"
+    
+    # 检查 PATH
+    local script_dir=$(get_script_dir)
+    if [[ ":$PATH:" != *":$script_dir:"* ]] && [[ "$script_dir" == "$HOME/.git-scripts" ]]; then
+        print_msg $YELLOW "[HINT] 建议将 $script_dir 添加到 PATH 中"
+        print_msg $YELLOW "      可以将以下行添加到 ~/.bashrc 或 ~/.zshrc："
+        print_msg $YELLOW "      export PATH=\"\$PATH:$script_dir\""
+    fi
 }
 
 # 错误处理
