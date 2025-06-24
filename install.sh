@@ -3,7 +3,7 @@
 # Git Sync 安装脚本
 
 # 配置
-REPO_URL="https://raw.githubusercontent.com/yourusername/my-scripts/main/git-sync.sh"
+REPO_URL="https://raw.githubusercontent.com/Yuyang-Du-NTU/Scripts/main/git-sync.sh"
 SCRIPT_NAME="git-sync"
 
 # 检测操作系统
