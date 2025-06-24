@@ -76,10 +76,9 @@ create_git_aliases() {
     local sync_script=$(<"${TEMP_DIR}/git-mysync.sh")
     local push_script=$(<"${TEMP_DIR}/git-mypush.sh")
     
-    # 转义特殊字符
-    sync_script=$(printf '%s' "$sync_script" | sed 's/\\/\\\\/g; s/"/\\"/g')
-    push_script=$(printf '%s' "$push_script" | sed 's/\\/\\\\/g; s/"/\\"/g')
-    
+    # 转义特殊字符: 反斜杠, 双引号, 和美元符号
+    sync_script=$(printf '%s' "$sync_script" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\$/\\\$/g')
+    push_script=$(printf '%s' "$push_script" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\$/\\\$/g')
     # 创建 aliases
     git config --global alias.mysync "!bash -c \"${sync_script}\" --"
     git config --global alias.mypush "!bash -c \"${push_script}\" --"
