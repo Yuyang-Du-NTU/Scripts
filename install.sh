@@ -1,37 +1,4 @@
-# 显示使用说明
-show_usage() {
-    print_msg $PURPLE "
-====================================
-Git Scripts 安装成功！
-====================================
-
-可用命令:
-
-1. git mysync      - 同步所有远程分支和标签
-   选项:
-   -f, --force     跳过工作区检查
-   -q, --quiet     静默模式
-   -h, --help      显示帮助
-
-2. git mypush      - 智能推送已提交的更改
-   选项:
-   -d, --default   自动提交并推送（默认提交信息）
-   -c, --current   只推送当前分支
-   -t, --tags      只推送标签
-   -f, --force     强制推送当前分支
-   -h, --help      显示帮助
-
-使用示例:
-   git mysync              # 同步所有分支
-   git mypush              # 推送已提交的更改
-   git mypush -d           # 自动提交所有更改并推送
-   git mypush -c           # 只推送当前分支
-
-卸载方法:
-   git config --global --unset alias.mysync
-   git config --global --unset alias.mypush
-"
-}#!/bin/bash
+#!/bin/bash
 
 # Git Scripts 安装脚本 - 使用 Git Alias
 # 自动配置 git mysync 和 git mypush 命令
@@ -240,34 +207,36 @@ verify_installation() {
 
 # 显示使用说明
 show_usage() {
-    print_msg $PURPLE "
+    print_msg $BLUE "
 ====================================
 Git Scripts 安装成功！
 ====================================
 
 可用命令:
 
-1. git sync-all    - 同步所有远程分支和标签
+1. git mysync      - 同步所有远程分支和标签
    选项:
    -f, --force     跳过工作区检查
    -q, --quiet     静默模式
    -h, --help      显示帮助
 
-2. git push-all    - 推送所有本地更改
+2. git mypush      - 智能推送已提交的更改
    选项:
+   -d, --default   自动提交并推送（默认提交信息）
    -c, --current   只推送当前分支
    -t, --tags      只推送标签
    -f, --force     强制推送当前分支
    -h, --help      显示帮助
 
 使用示例:
-   git sync-all              # 同步所有分支
-   git push-all              # 推送所有更改
-   git push-all -c           # 只推送当前分支
+   git mysync              # 同步所有分支
+   git mypush              # 推送已提交的更改
+   git mypush -d           # 自动提交所有更改并推送
+   git mypush -c           # 只推送当前分支
 
 卸载方法:
-   git config --global --unset alias.sync-all
-   git config --global --unset alias.push-all
+   git config --global --unset alias.mysync
+   git config --global --unset alias.mypush
 "
 }
 
