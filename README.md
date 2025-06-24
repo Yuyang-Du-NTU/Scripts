@@ -26,7 +26,7 @@ or wget
 ### sync
 `git mysync`
 
-## uninstall
+<!-- ## uninstall
 Since this script only affect git config, so it will be easy for unlink. User dont need to worry about their computer environment been disputed
 and also keep origin taste for git commands
 
@@ -35,4 +35,4 @@ But for your convenience, you can use the following bash to uninstall:
 
 Or you can do it mannually:
 git config --global --unset alias.mysync
-git config --global --unset alias.mypush
+git config --global --unset alias.mypush -->
