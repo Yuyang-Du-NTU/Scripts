@@ -6,10 +6,9 @@ please use
 curl
 
 
-curl -fsSL https://raw.githubusercontent.com/yourusername/my-scripts/main/install.sh | bash
-
+curl -fsSL https://raw.githubusercontent.com/Yuyang-Du-NTU/Scripts/main/install.sh | bash
 
 or wget
 
 
-wget -qO- https://raw.githubusercontent.com/yourusername/my-scripts/main/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/Yuyang-Du-NTU/Scripts/main/install.sh | bash
