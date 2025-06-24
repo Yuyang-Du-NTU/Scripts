@@ -95,16 +95,20 @@ check_workspace_status() {
     fi
 }
 
-# 默认提交功能
+# 自动提交功能（-d 选项）
 auto_commit_changes() {
-    local current_time=$(date "+%Y-%m-%d %H:%M:%S")
     local username=$(git config user.name || whoami)
-    local commit_msg="[default mypush] $current_time by $username"
+    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    local commit_msg="[default commit from mypush] user: $username at $timestamp"
     
-    print_msg $CYAN "[AUTO] 自动提交更改..."
+    print_msg $CYAN "[AUTO] 自动提交所有更改..."
     git add -A
-    git commit -m "$commit_msg"
+    git commit -m "$commit_msg" || {
+        print_msg $YELLOW "[WARN] 没有需要提交的更改"
+        return 1
+    }
     print_msg $GREEN "[OK] 已自动提交: $commit_msg"
+    return 0
 }
 
 # 处理未提交的更改
@@ -285,25 +289,52 @@ push_all_tags() {
     fi
 }
 
-# 显示推送前的摘要
-show_pre_push_summary() {
-    print_msg $PURPLE "[SUMMARY] 推送前检查："
+# 显示待推送的提交详情
+show_pending_commits() {
+    print_msg $PURPLE "[COMMITS] 待推送的提交详情："
     
-    # 当前分支状态
-    local current_branch=$(get_current_branch)
-    echo "   - 当前分支: $current_branch"
+    local has_commits=false
+    local total_commits=0
     
-    # 需要推送的分支数
-    local branches_to_push=($(get_branches_to_push))
-    echo "   - 待推送分支: ${#branches_to_push[@]} 个"
+    # 遍历所有分支
+    while IFS= read -r branch; do
+        if [[ -n "$branch" ]]; then
+            local upstream=$(git rev-parse --abbrev-ref "$branch@{upstream}" 2>/dev/null || echo "")
+            if [[ -n "$upstream" ]]; then
+                local commits=$(git rev-list --count "$upstream..$branch" 2>/dev/null || echo "0")
+                if [[ "$commits" -gt 0 ]]; then
+                    has_commits=true
+                    total_commits=$((total_commits + commits))
+                    echo
+                    print_msg $CYAN "  分支: $branch ($commits 个提交)"
+                    git log "$upstream..$branch" --oneline --format="    %h %s" | head -10
+                    if [[ "$commits" -gt 10 ]]; then
+                        echo "    ... 还有 $((commits - 10)) 个提交"
+                    fi
+                fi
+            else
+                # 新分支，没有上游
+                local commits=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+                if [[ "$commits" -gt 0 ]]; then
+                    has_commits=true
+                    total_commits=$((total_commits + commits))
+                    echo
+                    print_msg $CYAN "  新分支: $branch ($commits 个提交)"
+                    git log --oneline --format="    %h %s" -10
+                    if [[ "$commits" -gt 10 ]]; then
+                        echo "    ... 还有 $((commits - 10)) 个提交"
+                    fi
+                fi
+            fi
+        fi
+    done < <(git for-each-ref --format='%(refname:short)' refs/heads/)
     
-    # 需要推送的标签数
-    local tags_to_push=($(get_tags_to_push))
-    echo "   - 待推送标签: ${#tags_to_push[@]} 个"
-    
-    # 远程仓库
-    local remote_url=$(git config --get remote.origin.url || echo "未设置")
-    echo "   - 远程仓库: $remote_url"
+    if ! $has_commits; then
+        echo "    无待推送的提交"
+    else
+        echo
+        print_msg $GREEN "  总计: $total_commits 个提交待推送"
+    fi
 }
 
 # 强制推送模式
@@ -378,19 +409,43 @@ main() {
         exit 0
     fi
     
-    # 处理未提交的更改
-    handle_uncommitted_changes $default_mode
+    # 如果指定了 -d 选项，先自动提交
+    if $default_mode; then
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+            auto_commit_changes
+            echo
+        fi
+    else
+        # 检查是否有未提交的更改
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+            print_msg $YELLOW "[WARN] 检测到未提交的更改："
+            git status -s
+            print_msg $RED "[ABORT] 请先提交更改或使用 -d 选项自动提交"
+            exit 1
+        fi
+    fi
+    
+    # 显示推送前摘要
+    print_msg $PURPLE "[SUMMARY] 推送前检查："
+    local current_branch=$(get_current_branch)
+    echo "   - 当前分支: $current_branch"
+    local branches_to_push=($(get_branches_to_push))
+    echo "   - 待推送分支: ${#branches_to_push[@]} 个"
+    local tags_to_push=($(get_tags_to_push))
+    echo "   - 待推送标签: ${#tags_to_push[@]} 个"
+    local remote_url=$(git config --get remote.origin.url || echo "未设置")
+    echo "   - 远程仓库: $remote_url"
+    echo
+    
+    # 显示待推送的提交详情
+    show_pending_commits
+    echo
     
     # 确认推送
     confirm_push
     
-    # 显示推送前摘要
-    show_pre_push_summary
-    echo
-    
     # 只推送当前分支
     if $current_only; then
-        local current_branch=$(get_current_branch)
         push_branch "$current_branch"
     else
         # 推送所有分支
