@@ -5,7 +5,7 @@
 
 # 配置
 REPO_BASE="https://raw.githubusercontent.com/Yuyang-Du-NTU/Scripts/debug"
-SYNC_SCRIPT_URL="${REPO_BASE}/git-mysync.sh"
+PULL_SCRIPT_URL="${REPO_BASE}/git_mypull.py"
 PUSH_SCRIPT_URL="${REPO_BASE}/git_mypush.py"
 
 # 颜色定义
@@ -31,7 +31,7 @@ show_banner() {
     print_msg $CYAN "╔══════════════════════════════════════════════╗"
     print_msg $CYAN "║     Git Scripts 安装程序 v3.1 (智能 PATH)      ║"
     print_msg $CYAN "║                                              ║"
-    print_msg $CYAN "║  - git mysync: (Shell) 智能同步分支和标签    ║"
+    print_msg $CYAN "║  - git mypull: (Python) 智能同步分支和标签   ║"
     print_msg $CYAN "║  - git mypush: (Python) 智能推送并处理大文件 ║"
     print_msg $CYAN "╚══════════════════════════════════════════════╝"
     echo
@@ -70,9 +70,9 @@ download_scripts() {
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     print_msg $BLUE "[COPY] 复制本地脚本文件..."
     
-    # 复制 mysync 脚本 (Shell)
-    echo -n "  - 复制 git-mysync.sh... "
-    if cp "${script_dir}/git-mysync.sh" "${temp_dir}/git-mysync"; then
+    # 复制 mypull 脚本 (Python)
+    echo -n "  - 复制 git_mypull.py... "
+    if cp "${script_dir}/git_mypull.py" "${temp_dir}/git-mypull"; then
         echo -e "${GREEN}✓${NC}"
     else
         echo -e "${RED}✗${NC}"; return 1
@@ -99,9 +99,9 @@ install_scripts() {
     
     mkdir -p "$install_dir"
     
-    # 安装 git-mysync (shell)
-    echo -n "  - 安装 git-mysync... "
-    if mv "${temp_dir}/git-mysync" "$install_dir/git-mysync" && chmod +x "$install_dir/git-mysync"; then
+    # 安装 git-mypull (python)
+    echo -n "  - 安装 git-mypull... "
+    if mv "${temp_dir}/git-mypull" "$install_dir/git-mypull" && chmod +x "$install_dir/git-mypull"; then
         echo -e "${GREEN}✓${NC}"
     else
         echo -e "${RED}✗${NC}"; return 1
@@ -125,9 +125,9 @@ create_git_aliases() {
     local install_dir=$1
     print_msg $BLUE "[CONFIG] 配置 Git aliases..."
     
-    # 配置 git mysync (执行 shell 脚本)
-    echo -n "  - 配置 git mysync... "
-    if git config --global alias.mysync "!\"$install_dir/git-mysync\""; then
+    # 配置 git mypull (执行 python 脚本)
+    echo -n "  - 配置 git mypull... "
+    if git config --global alias.mypull "!\"$install_dir/git-mypull\""; then
         echo -e "${GREEN}✓${NC}"
     else
         echo -e "${RED}✗${NC}"; return 1
