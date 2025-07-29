@@ -33,12 +33,165 @@ def run_command(command, capture_output=True, check=False):
     text = True if capture_output else None
     return subprocess.run(command, capture_output=capture_output, text=text, check=check, shell=True)
 
+def check_lfs_files_status():
+    """检查 LFS 跟踪的文件状态，并清理已不存在的文件。在 LFS 未使用时安全跳过。"""
+    print_msg(Colors.BLUE, "[INFO] 检查 LFS 文件状态...")
+    # 首先，检查 git-lfs 是否已安装并可用
+    lfs_check_result = run_command("git lfs --version", capture_output=True)
+    if lfs_check_result.returncode != 0:
+        print_msg(Colors.YELLOW, "[WARN] Git LFS 未安装，跳过 LFS 文件检查。")
+        return
+
+    # 尝试列出LFS跟踪的文件。如果命令失败或没有输出，说明没有LFS文件或LFS未被使用。
+    lfs_files_result = run_command("git lfs ls-files -n", capture_output=True)
+    if lfs_files_result.returncode != 0 or not lfs_files_result.stdout.strip():
+        print_msg(Colors.GREEN, "[OK] LFS 状态正常 (无文件被跟踪或LFS未使用)。")
+        return
+
+    tracked_files = lfs_files_result.stdout.strip().split('\n')
+    
+    git_root_result = run_command("git rev-parse --show-toplevel", capture_output=True)
+    if git_root_result.returncode != 0:
+        print_msg(Colors.RED, "[ERROR] 无法确定 git 仓库根目录，跳过 LFS 文件检查。")
+        return
+    git_root = git_root_result.stdout.strip()
+
+    gitattributes_modified = False
+    for file_path in tracked_files:
+        if not file_path:
+            continue
+        
+        # ls-files a路径是相对于仓库根目录的
+        absolute_file_path = os.path.join(git_root, file_path)
+
+        if not os.path.exists(absolute_file_path):
+            print_msg(Colors.YELLOW, f"[LFS-CLEAN] 检测到已删除的 LFS 文件: {file_path}")
+            print_msg(Colors.CYAN, f"           正在从 .gitattributes 取消跟踪...")
+            run_command(f"git lfs untrack '{file_path}'")
+            gitattributes_modified = True
+
+    if gitattributes_modified:
+        print_msg(Colors.CYAN, "[LFS-CLEAN] 正在暂存 .gitattributes 的更改...")
+        run_command("git add .gitattributes")
+        print_msg(Colors.GREEN, "[OK] LFS 清理完成。 .gitattributes 已更新并暂存。")
+    else:
+        print_msg(Colors.GREEN, "[OK] LFS 文件状态正常。")
+
+def run_command_with_progress(command):
+    """执行命令并实时显示输出，同时捕获错误信息（使用 PTY）"""
+    import pty
+    import os
+    import select
+
+    # 创建一个伪终端
+    master_fd, slave_fd = pty.openpty()
+
+    try:
+        # 在伪终端中启动子进程
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdin=subprocess.DEVNULL,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            preexec_fn=os.setsid # 让子进程成为新的会话首进程
+        )
+        
+        # 在父进程中关闭子进程端的fd
+        os.close(slave_fd)
+        slave_fd = -1 # 标记为已关闭
+
+        output_bytes = []
+        
+        while process.poll() is None:
+            # 使用 select 监控主fd，等待数据可读
+            r, _, _ = select.select([master_fd], [], [], 0.1)
+            if r:
+                try:
+                    # 读取伪终端的输出
+                    data = os.read(master_fd, 1024)
+                except OSError:
+                    # 当子进程关闭其终端端时，会发生此错误
+                    break
+
+                if not data:  # EOF
+                    break
+                
+                # 实时转发到标准输出并保存
+                sys.stdout.buffer.write(data)
+                sys.stdout.flush()
+                output_bytes.append(data)
+
+        # 确保子进程已完全终止
+        process.wait()
+
+        # 解码捕获的完整输出
+        full_output = b"".join(output_bytes).decode('utf-8', 'replace')
+
+        # 创建一个类似subprocess.CompletedProcess的对象
+        class Result:
+            def __init__(self, returncode, stdout, stderr):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr # 对于PTY，stdout和stderr是合并的
+
+        return Result(process.returncode, full_output, full_output)
+
+    finally:
+        # 确保文件描述符被关闭
+        if slave_fd != -1:
+            os.close(slave_fd)
+        os.close(master_fd)
+
 def check_git_repo():
     """检查当前目录是否为 Git 仓库"""
     result = run_command("git rev-parse --git-dir", capture_output=True)
     if result.returncode != 0:
         print_msg(Colors.RED, "[错误] 当前目录不是 Git 仓库")
         sys.exit(1)
+
+def check_interrupted_push():
+    """检查是否有中断的push操作需要继续"""
+    # 检查是否有正在进行的rebase/merge/cherry-pick等操作
+    git_dir = run_command("git rev-parse --git-dir", capture_output=True).stdout.strip()
+    
+    # 检查各种中断状态
+    interrupted_operations = []
+    
+    if os.path.exists(os.path.join(git_dir, "MERGE_HEAD")):
+        interrupted_operations.append("merge")
+    if os.path.exists(os.path.join(git_dir, "CHERRY_PICK_HEAD")):
+        interrupted_operations.append("cherry-pick")
+    if os.path.exists(os.path.join(git_dir, "rebase-merge")) or os.path.exists(os.path.join(git_dir, "rebase-apply")):
+        interrupted_operations.append("rebase")
+    
+    # 检查是否有未推送的提交（可能是之前中断的push）
+    current_branch = get_current_branch()
+    if current_branch:
+        # 检查本地和远程的差异
+        upstream_result = run_command(f"git rev-parse --abbrev-ref {current_branch}@{{upstream}}", capture_output=True)
+        if upstream_result.returncode == 0:
+            # 有上游分支，检查是否有未推送的提交
+            unpushed_result = run_command(f"git log {current_branch}@{{upstream}}..{current_branch} --oneline", capture_output=True)
+            if unpushed_result.stdout.strip():
+                print_msg(Colors.YELLOW, f"[INFO] 检测到分支 {current_branch} 有未推送的提交")
+                print_msg(Colors.CYAN, "未推送的提交:")
+                print(unpushed_result.stdout)
+                
+                try:
+                    choice = input(f"{Colors.YELLOW}是否要继续推送这些提交？(Y/n): {Colors.NC}")
+                    if choice.lower().strip() != 'n':
+                        return True
+                except (EOFError, KeyboardInterrupt):
+                    print_msg(Colors.RED, "\n[ABORT] 操作已取消")
+                    return False
+    
+    if interrupted_operations:
+        print_msg(Colors.RED, f"[WARN] 检测到未完成的Git操作: {', '.join(interrupted_operations)}")
+        print_msg(Colors.RED, "[ABORT] 请先完成或中止这些操作后再运行推送")
+        sys.exit(1)
+    
+    return False
 
 def get_current_branch():
     """获取当前分支名"""
@@ -77,8 +230,7 @@ def handle_large_file_error(branch, push_error):
         return False
 
     # 自动识别大文件
-    match = re.search(r"File is too large: (.*?);", push_error) or \
-            re.search(r"remote: error: File (.*?) is", push_error)
+    match = re.search(r"error: File (.*?) is .* MB", push_error)
     
     large_file = ""
     if match:
@@ -127,7 +279,7 @@ def handle_large_file_error(branch, push_error):
 
     # 再次推送
     print_msg(Colors.CYAN, "[LFS] 正在重试推送...")
-    result = run_command(f"git push origin {branch}", capture_output=True)
+    result = run_command_with_progress(f"git push origin {branch}")
     if result.returncode == 0:
         print_msg(Colors.GREEN, "[OK] LFS 处理后推送成功")
         return True
@@ -146,15 +298,15 @@ def push_branch(branch):
     
     print_msg(Colors.CYAN, f"[PUSH] {action_msg}: {branch_name}")
     
-    result = run_command(push_command, capture_output=True)
+    result = run_command_with_progress(push_command)
     
     if result.returncode == 0:
         print_msg(Colors.GREEN, f"[OK] 成功推送: {branch_name}")
         return True
     
     # 检查是否为大文件错误
-    error_output = result.stderr
-    if "File is too large" in error_output or "size exceeds" in error_output:
+    error_output = (result.stderr or "") + (result.stdout or "")
+    if "GH001: Large files detected" in error_output:
         return handle_large_file_error(branch_name, error_output)
     else:
         print_msg(Colors.RED, f"[ERROR] 推送失败: {branch_name}")
@@ -220,17 +372,17 @@ def main():
     args = parser.parse_args()
 
     print_msg(Colors.CYAN, "[START] Git 推送 (mypush)...")
-    print_msg(Colors.CYAN, "with python")
-
     check_git_repo()
-    print_msg(Colors.CYAN, "with python")
-
+    check_lfs_files_status() # 在这里添加了LFS状态检查
+    
+    # 检查是否有中断的操作需要继续
+    should_continue_push = check_interrupted_push()
     if args.force:
         # 强制推送逻辑
         current_branch = get_current_branch()
         print_msg(Colors.RED, f"[WARN] 强制推送当前分支: {current_branch}")
         if input("确定要强制推送吗？这可能会覆盖远程更改！(yes/N): ").lower() == 'yes':
-            run_command(f"git push origin {current_branch} --force-with-lease")
+            run_command_with_progress(f"git push origin {current_branch} --force-with-lease")
             print_msg(Colors.GREEN, "[OK] 强制推送完成")
         else:
             print_msg(Colors.YELLOW, "[CANCEL] 已取消强制推送")
@@ -239,26 +391,36 @@ def main():
     if args.tags:
         # 推送标签逻辑
         print_msg(Colors.BLUE, "[INFO] 推送所有标签...")
-        run_command("git push origin --tags")
+        run_command_with_progress("git push origin --tags")
         print_msg(Colors.GREEN, "[OK] 标签推送完成")
         sys.exit(0)
 
-    if args.default:
-        print_msg(Colors.CYAN, "with python in default")
+    # 如果不是继续推送，才检查未提交的更改
+    if not should_continue_push:
+        if args.default:
+            print_msg(Colors.CYAN, "with python in default")
 
-        status_result = run_command("git status --porcelain")
-        if status_result.stdout.strip():
-            auto_commit_changes()
-            print("")
-    else:
-        status_result = run_command("git status --porcelain")
-        if status_result.stdout.strip():
-            print_msg(Colors.YELLOW, "[WARN] 检测到未提交的更改：")
-            print(run_command("git status -s").stdout)
-            print_msg(Colors.RED, "[ABORT] 请先提交更改或使用 -d 选项自动提交")
-            sys.exit(1)
+            status_result = run_command("git status --porcelain")
+            if status_result.stdout.strip():
+                auto_commit_changes()
+                print("")
+        else:
+            status_result = run_command("git status --porcelain")
+            if status_result.stdout.strip():
+                print_msg(Colors.YELLOW, "[WARN] 检测到未提交的更改：")
+                print(run_command("git status -s").stdout)
+                print_msg(Colors.RED, "[ABORT] 请先提交更改或使用 -d 选项自动提交")
+                sys.exit(1)
 
-    if args.current:
+    # 如果检测到需要继续推送，直接进行推送而不检查未提交的更改
+    if should_continue_push:
+        print_msg(Colors.CYAN, "[CONTINUE] 继续执行推送...")
+        if args.current:
+            current_branch = get_current_branch()
+            push_branch(current_branch)
+        else:
+            push_all_branches()
+    elif args.current:
         current_branch = get_current_branch()
         push_branch(current_branch)
     else:
